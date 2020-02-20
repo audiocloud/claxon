@@ -35,6 +35,12 @@ pub struct BufferedReader<R: io::Read> {
     num_valid: u32,
 }
 
+impl<R: io::Read + io::Seek> BufferedReader<R> {
+    pub fn stream_position(&mut self) -> std::io::Result<u64> {
+        self.inner.stream_position()
+    }
+}
+
 impl<R: io::Read> BufferedReader<R> {
     /// Wrap the reader in a new buffered reader.
     pub fn new(inner: R) -> BufferedReader<R> {
@@ -66,6 +72,14 @@ impl<R: io::Read> BufferedReader<R> {
 
     pub fn inner_mut(&mut self) -> &mut R {
         &mut self.inner
+    }
+
+    pub fn get_pos(&self) -> u32 {
+        self.pos
+    }
+
+    pub fn get_num_valid(&self) -> u32 {
+        self.num_valid
     }
 }
 

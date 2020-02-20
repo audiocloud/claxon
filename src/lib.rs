@@ -1,3 +1,4 @@
+#![feature(seek_convenience)]
 // Claxon -- A FLAC decoding library in Rust
 // Copyright 2014 Ruud van Asseldonk
 //
@@ -179,7 +180,7 @@ pub struct FlacSamples<R: ReadBytes> {
 
 // TODO: Add a `FlacIntoSamples`.
 
-fn read_stream_header<R: ReadBytes>(input: &mut R) -> Result<()> {
+pub fn read_stream_header<R: ReadBytes>(input: &mut R) -> Result<()> {
     // A FLAC stream starts with a 32-bit header 'fLaC' (big endian).
     const FLAC_HEADER: u32 = 0x66_4c_61_43;
 

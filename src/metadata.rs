@@ -7,10 +7,10 @@
 
 //! The `metadata` module deals with metadata at the beginning of a FLAC stream.
 
-use error::{Error, Result, fmt_err};
+use error::{fmt_err, Error, Result};
 use input::ReadBytes;
-use std::str;
 use std::slice;
+use std::str;
 
 #[derive(Clone, Copy)]
 struct MetadataBlockHeader {
@@ -54,7 +54,7 @@ pub struct StreamInfo {
 }
 
 /// A seek point in the seek table.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct SeekPoint {
     /// Sample number of the first sample in the target frame, or 2<sup>64</sup> - 1 for a placeholder.
     pub sample: u64,
@@ -66,6 +66,7 @@ pub struct SeekPoint {
 }
 
 /// A seek table to aid seeking in the stream.
+#[derive(Debug)]
 pub struct SeekTable {
     /// The seek points, sorted in ascending order by sample number.
     #[allow(dead_code)] // TODO: Implement seeking.
@@ -73,6 +74,7 @@ pub struct SeekTable {
 }
 
 /// Vorbis comments, also known as FLAC tags (e.g. artist, title, etc.).
+#[derive(Debug)]
 pub struct VorbisComment {
     /// The “vendor string”, chosen by the encoder vendor.
     ///
@@ -101,6 +103,7 @@ pub struct VorbisComment {
 }
 
 /// A metadata about the flac stream.
+#[derive(Debug)]
 pub enum MetadataBlock {
     /// A stream info block.
     StreamInfo(StreamInfo),
@@ -151,11 +154,12 @@ impl<'a> Iterator for Tags<'a> {
 
     #[inline]
     fn next(&mut self) -> Option<(&'a str, &'a str)> {
-        return self.iter.next().map(|&(ref comment, sep_idx)| {
-            (&comment[..sep_idx], &comment[sep_idx+1..])
-        })
+        return self
+            .iter
+            .next()
+            .map(|&(ref comment, sep_idx)| (&comment[..sep_idx], &comment[sep_idx + 1..]));
     }
-    
+
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.iter.size_hint()
@@ -202,11 +206,11 @@ impl<'a> Iterator for GetTag<'a> {
             self.index += 1;
 
             if comment[..sep_idx].eq_ignore_ascii_case(self.needle) {
-                return Some(&comment[sep_idx + 1..])
+                return Some(&comment[sep_idx + 1..]);
             }
         }
 
-        return None
+        return None;
     }
 }
 
@@ -241,10 +245,9 @@ fn read_metadata_block_header<R: ReadBytes>(input: &mut R) -> Result<MetadataBlo
 /// metadata blocks including their header verbatim in packets. This function
 /// can be used to decode that raw data.
 #[inline]
-pub fn read_metadata_block_with_header<R: ReadBytes>(input: &mut R)
-                                                     -> Result<MetadataBlock> {
-  let header = try!(read_metadata_block_header(input));
-  read_metadata_block(input, header.block_type, header.length)
+pub fn read_metadata_block_with_header<R: ReadBytes>(input: &mut R) -> Result<MetadataBlock> {
+    let header = try!(read_metadata_block_header(input));
+    read_metadata_block(input, header.block_type, header.length)
 }
 
 /// Read a single metadata block of the given type and length from the input.
@@ -258,10 +261,11 @@ pub fn read_metadata_block_with_header<R: ReadBytes>(input: &mut R)
 /// a “FLAC Specific Box” which contains the block type and the raw data. This
 /// function can be used to decode that raw data.
 #[inline]
-pub fn read_metadata_block<R: ReadBytes>(input: &mut R,
-                                         block_type: u8,
-                                         length: u32)
-                                         -> Result<MetadataBlock> {
+pub fn read_metadata_block<R: ReadBytes>(
+    input: &mut R,
+    block_type: u8,
+    length: u32,
+) -> Result<MetadataBlock> {
     match block_type {
         0 => {
             // The streaminfo block has a fixed size of 34 bytes.
@@ -278,10 +282,7 @@ pub fn read_metadata_block<R: ReadBytes>(input: &mut R,
         }
         2 => {
             let (id, data) = try!(read_application_block(input, length));
-            Ok(MetadataBlock::Application {
-                id: id,
-                data: data,
-            })
+            Ok(MetadataBlock::Application { id: id, data: data })
         }
         3 => {
             // TODO: implement seektable reading. For now, pretend it is padding.
@@ -403,7 +404,7 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
     if length < 8 {
         // We expect at a minimum a 32-bit vendor string length, and a 32-bit
         // comment count.
-        return fmt_err("Vorbis comment block is too short")
+        return fmt_err("Vorbis comment block is too short");
     }
 
     // Fail if the length of the Vorbis comment block is larger than 1 MiB. This
@@ -421,20 +422,24 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
     // place for that anyway.
     if length > 10 * 1024 * 1024 {
         let msg = "Vorbis comment blocks larger than 10 MiB are not supported";
-        return Err(Error::Unsupported(msg))
+        return Err(Error::Unsupported(msg));
     }
 
     // The Vorbis comment block starts with a length-prefixed "vendor string".
     // It cannot be larger than the block length - 8, because there are the
     // 32-bit vendor string length, and comment count.
     let vendor_len = try!(input.read_le_u32());
-    if vendor_len > length - 8 { return fmt_err("vendor string too long") }
+    if vendor_len > length - 8 {
+        return fmt_err("vendor string too long");
+    }
     let mut vendor_bytes = Vec::with_capacity(vendor_len as usize);
 
     // We can safely set the lenght of the vector here; the uninitialized memory
     // is not exposed. If `read_into` succeeds, it will have overwritten all
     // bytes. If not, an error is returned and the memory is never exposed.
-    unsafe { vendor_bytes.set_len(vendor_len as usize); }
+    unsafe {
+        vendor_bytes.set_len(vendor_len as usize);
+    }
     try!(input.read_into(&mut vendor_bytes));
     let vendor = try!(String::from_utf8(vendor_bytes));
 
@@ -444,7 +449,7 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
     // that we don't allocate a big vector, to protect against DoS attacks.
     let mut comments_len = try!(input.read_le_u32());
     if comments_len >= length / 4 {
-        return fmt_err("too many entries for Vorbis comment block")
+        return fmt_err("too many entries for Vorbis comment block");
     }
     let mut comments = Vec::with_capacity(comments_len as usize);
 
@@ -457,7 +462,7 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
         bytes_left -= 4;
 
         if comment_len > bytes_left {
-            return fmt_err("Vorbis comment too long for Vorbis comment block")
+            return fmt_err("Vorbis comment too long for Vorbis comment block");
         }
 
         // Some older versions of libflac allowed writing zero-length Vorbis
@@ -471,7 +476,9 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
 
         // For the same reason as above, setting the length is safe here.
         let mut comment_bytes = Vec::with_capacity(comment_len as usize);
-        unsafe { comment_bytes.set_len(comment_len as usize); }
+        unsafe {
+            comment_bytes.set_len(comment_len as usize);
+        }
         try!(input.read_into(&mut comment_bytes));
 
         bytes_left -= comment_len;
@@ -485,23 +492,23 @@ fn read_vorbis_comment_block<R: ReadBytes>(input: &mut R, length: u32) -> Result
                 // the advantage that if the check passes, the result is valid
                 // UTF-8, so the conversion to string will not fail.
                 if name_bytes.iter().any(|&x| x < 0x20 || x > 0x7d) {
-                    return fmt_err("Vorbis comment field name contains invalid byte")
+                    return fmt_err("Vorbis comment field name contains invalid byte");
                 }
             }
 
             let comment = try!(String::from_utf8(comment_bytes));
             comments.push((comment, sep_index));
         } else {
-            return fmt_err("Vorbis comment does not contain '='")
+            return fmt_err("Vorbis comment does not contain '='");
         }
     }
 
     if bytes_left != 0 {
-        return fmt_err("Vorbis comment block has excess data")
+        return fmt_err("Vorbis comment block has excess data");
     }
 
     if comments.len() != comments_len as usize {
-        return fmt_err("Vorbis comment block contains wrong number of entries")
+        return fmt_err("Vorbis comment block contains wrong number of entries");
     }
 
     let vorbis_comment = VorbisComment {
@@ -523,7 +530,7 @@ fn read_padding_block<R: ReadBytes>(input: &mut R, length: u32) -> Result<()> {
 
 fn read_application_block<R: ReadBytes>(input: &mut R, length: u32) -> Result<(u32, Vec<u8>)> {
     if length < 4 {
-        return fmt_err("application block length must be at least 4 bytes")
+        return fmt_err("application block length must be at least 4 bytes");
     }
 
     // Reject large application blocks to avoid memory-based denial-
@@ -531,7 +538,7 @@ fn read_application_block<R: ReadBytes>(input: &mut R, length: u32) -> Result<(u
     // `read_vorbis_comment_block()`.
     if length > 10 * 1024 * 1024 {
         let msg = "application blocks larger than 10 MiB are not supported";
-        return Err(Error::Unsupported(msg))
+        return Err(Error::Unsupported(msg));
     }
 
     let id = try!(input.read_be_u32());
@@ -542,7 +549,9 @@ fn read_application_block<R: ReadBytes>(input: &mut R, length: u32) -> Result<(u
     // buffer completely, or return an err, in which case the memory is not
     // exposed.
     let mut data = Vec::with_capacity(length as usize - 4);
-    unsafe { data.set_len(length as usize - 4); }
+    unsafe {
+        data.set_len(length as usize - 4);
+    }
     try!(input.read_into(&mut data));
 
     Ok((id, data))
@@ -574,7 +583,11 @@ impl<R: ReadBytes> MetadataBlockReader<R> {
     #[inline]
     fn read_next(&mut self) -> MetadataBlockResult {
         let header = try!(read_metadata_block_header(&mut self.input));
-        let block = try!(read_metadata_block(&mut self.input, header.block_type, header.length));
+        let block = try!(read_metadata_block(
+            &mut self.input,
+            header.block_type,
+            header.length
+        ));
         self.done = header.is_last;
         Ok(block)
     }
@@ -604,6 +617,10 @@ impl<R: ReadBytes> Iterator for MetadataBlockReader<R> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         // When done, there will be no more blocks,
         // when not done, there will be at least one more.
-        if self.done { (0, Some(0)) } else { (1, None) }
+        if self.done {
+            (0, Some(0))
+        } else {
+            (1, None)
+        }
     }
 }
